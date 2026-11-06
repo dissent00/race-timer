@@ -119,6 +119,16 @@ eq('sanitize name length', s.state.roster[0].name.length, 60);
 s = fns.sanitize({ ...base, entries: [{ id: 'a', t: 1, bib: '37', race: 'r1' }], roster: [{ bib: '37', name: 'Ana', race: null }] });
 eq('sanitize keeps entries beside roster', s.state.entries.length, 1);
 
+// ---- gridRange survives sanitize, defaults to empty, and is length-capped
+s = fns.sanitize({ ...base, gridRange: '1-50, 61' });
+eq('sanitize gridRange kept', s.state.gridRange, '1-50, 61');
+s = fns.sanitize(base);
+eq('sanitize gridRange default', s.state.gridRange, '');
+s = fns.sanitize({ ...base, gridRange: 12 });
+eq('sanitize gridRange non-string', s.state.gridRange, '');
+s = fns.sanitize({ ...base, gridRange: 'x'.repeat(200) });
+eq('sanitize gridRange capped', s.state.gridRange.length, 80);
+
 // ---- salvage keeps roster names, including quotes and backslashes, from a cut-off write
 const ev = { epoch: 'e', name: 'Cut', races: [{ id: 'r1', name: 'A', range: '', start: null }], active: 'r1',
   entries: [{ id: 'a', t: 1, bib: '1', race: 'r1' }, { id: 'b', t: 2, bib: '2', race: 'r1' }], deleted: [],

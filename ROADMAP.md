@@ -17,19 +17,20 @@
 - The name shows as digits are typed, in the log, in results, and in the CSV export (`name` column). A bib not on the roster still records and is flagged.
 - Part of the event backup and of damaged-data recovery. Up to 5000 runners per event.
 
-## Next: tap-to-record view
+### 2.2: tap-to-record grid
 
-A second entry mode: a grid of runners, one tile each, tap the tile as the runner crosses.
+- Keypad / Tap grid switch; the choice is remembered on the device. Both views write the same entries, so the log, results and export do not change.
+- Tiles from the roster (bib and name), or from the race bib ranges plus a typed range when there is no roster. Up to 1000 tiles are drawn; the filter reaches the rest.
+- Find by bib (prefix) or name; sort by bib or name; with several races the highlighted race's tiles come first, then tiles with no known race.
+- The tap stamps the time in the handler before any redraw. A recorded tile greys out with its time and a count; tapping it again asks ("Again?") for four seconds before it records a second finish.
+- Mark Time from the grid. "Name it" on a marked entry in Recently finished arms the next tile tap to name that mark instead of recording a new finish.
+- Recently finished: the last six entries, each with a one-tap Undo.
+- Digit, Enter and Backspace keys only act in the keypad view; Space (mark) and A-F (race) work in both.
 
-- Works with a roster (tile shows bib and name) and without one (bib tiles from the bib ranges or a typed range).
-- The tap stamps the time in the handler, before any redraw, the same as Record. A recorded tile greys out and shows its time; tapping it again asks before it records a second finish.
-- Mark Time button on the grid.
-- A "recently finished" strip with a one-tap undo for each entry.
-- Filter box and sort by bib or name. Tiles for the selected race first when races have bib ranges.
-- Switchable with the keypad view without losing state. Both write the same entries, so the log, results and export do not change.
-- A few hundred tiles must stay responsive on a phone.
+## Later
 
-Test: timestamp taken before render; duplicate-tap guard; modes interleaved in one event; 500 tiles.
+- Pointer-down timestamps for the grid (about 50-100 ms earlier than the click). Hand timing is coarser than that, so it is not planned.
+- Grid tiles for bibs recorded but not on the list.
 
 ## Not yet verified
 

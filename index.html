@@ -130,6 +130,27 @@ table { border-collapse: collapse; width: 100%; font-size: 14px; }
 th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-size: 12px; }
+.vstack { display: flex; flex-direction: column; gap: 10px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { min-height: 40px; border: 0; background: var(--bg); font-weight: 700; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--brass-lt); color: var(--on-brass); }
+.gridtools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.rangerow { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; max-height: 52vh; overflow-y: auto; padding: 2px; align-content: start; }
+.tile { min-height: 64px; padding: 6px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-width: 0; }
+.tile:active { background: var(--line); }
+.tile .tb { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.tile .tn { font-size: 11px; line-height: 1.2; max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; text-align: center; }
+.tile .tt { font-size: 11px; color: var(--go); font-weight: 700; }
+.tile.done { opacity: .6; }
+.tile.confirm { opacity: 1; border-color: var(--warn); border-width: 2px; }
+.tile.confirm .tt { color: var(--warn); }
+.tilenote { font-size: 12px; color: var(--muted); }
+.assign { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 2px solid var(--brass); border-radius: 6px; padding: 8px 10px; font-weight: 700; }
+.recent { display: flex; flex-direction: column; gap: 6px; }
+.chip { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px 4px 10px; background: var(--bg); }
+.chip .cl { flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.chip .ct { font-size: 13px; color: var(--muted); white-space: nowrap; }
 .who { min-height: 1.4em; font-weight: 700; }
 .nr { color: var(--warn); font-weight: 700; }
 .filebtn { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
@@ -163,15 +184,33 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     <section aria-label="Races"><div class="races" id="races"></div></section>
 
     <section class="entry" aria-label="Record a finisher">
-      <div class="typed-row">
-        <div class="typed num empty" id="typed" aria-live="polite">bib</div>
-        <div class="target" id="target"></div>
+      <div class="seg" role="group" aria-label="Entry mode">
+        <button id="viewKeypad" type="button" aria-pressed="true">Keypad</button>
+        <button id="viewGrid" type="button" aria-pressed="false">Tap grid</button>
       </div>
-      <div class="who" id="who"></div>
-      <div class="pad" id="pad"></div>
-      <div class="actions">
-        <button class="mark" id="mark" type="button">MARK TIME<br><span style="font-weight:400;font-size:12px">number later</span></button>
-        <button class="record" id="record" type="button" disabled>RECORD</button>
+      <div id="keypadView" class="vstack">
+        <div class="typed-row">
+          <div class="typed num empty" id="typed" aria-live="polite">bib</div>
+          <div class="target" id="target"></div>
+        </div>
+        <div class="who" id="who"></div>
+        <div class="pad" id="pad"></div>
+        <div class="actions">
+          <button class="mark" id="mark" type="button">MARK TIME<br><span style="font-weight:400;font-size:12px">number later</span></button>
+          <button class="record" id="record" type="button" disabled>RECORD</button>
+        </div>
+      </div>
+      <div id="gridView" class="vstack" hidden>
+        <div class="assign" id="assignBar" hidden></div>
+        <div class="gridtools">
+          <input id="gridFilter" type="search" placeholder="Find a bib or name" aria-label="Find a bib or name" autocomplete="off">
+          <button class="small" id="gridSort" type="button">Sort: bib</button>
+        </div>
+        <label class="rangerow" id="gridRangeRow">Bib range for the tiles, for example 1-50 <input id="gridRange" placeholder="1-50, 61" maxlength="80" autocomplete="off"></label>
+        <div class="tiles" id="tiles"></div>
+        <div class="tilenote" id="tileNote"></div>
+        <button class="mark" id="markGrid" type="button">MARK TIME<br><span style="font-weight:400;font-size:12px">name it from the list below</span></button>
+        <div class="recent" id="recent" hidden></div>
       </div>
       <div class="status" id="status" role="status" aria-live="polite"></div>
     </section>
@@ -259,10 +298,12 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
 <script>
 (function () {
   'use strict';
-  var VERSION = '2.1';
+  var VERSION = '2.2';
   var MAX_RACES = 6;
   var ROSTER_MAX = 5000;
+  var TILE_CAP = 1000;
   var PREFIX = 'raceFinishTimer:';
+  var VIEW_KEY = PREFIX + 'view';
   var CURRENT_KEY = PREFIX + 'current';
   var EVENT_PREFIX = PREFIX + 'event:';
   var warnings = {};
@@ -273,6 +314,12 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   var state = null;
   var rosterMap = {};
   var pendingRoster = null;
+  var view = 'keypad';
+  var gridSort = 'bib';
+  var gridQuery = '';
+  var confirmBib = null;
+  var confirmTimer = null;
+  var assignTo = null;
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) {
@@ -374,6 +421,45 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     }
     return out;
   }
+  // Whole bib numbers named by a spec like "1-50, 61", sorted and unique, at most max of them.
+  function expandRanges(spec, max) {
+    var seen = {}, out = [];
+    String(spec == null ? '' : spec).split(',').forEach(function (part) {
+      var p = part.trim(), m = p.match(/^(\d+)\s*[-–]\s*(\d+)$/), lo, hi;
+      if (m) { lo = +m[1]; hi = +m[2]; } else if (/^\d+$/.test(p)) { lo = hi = +p; } else { return; }
+      if (lo < 1) { lo = 1; }
+      if (hi > 9999) { hi = 9999; }
+      for (var n = lo; n <= hi && out.length < max; n++) { if (!seen[n]) { seen[n] = 1; out.push(n); } }
+    });
+    return out.sort(function (a, b) { return a - b; });
+  }
+  // Digits match the start of a bib or anywhere in a name; text matches names.
+  function filterTiles(tiles, q) {
+    q = String(q || '').trim().toLowerCase();
+    if (!q) { return tiles.slice(); }
+    var digits = /^\d+$/.test(q);
+    return tiles.filter(function (t) {
+      return (digits && t.bib.indexOf(q) === 0) || t.name.toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  // Tiles for the active race first, then tiles with no known race, then the others.
+  function orderTiles(tiles, sort, activeId, raceOf) {
+    function group(t) {
+      if (!activeId) { return 0; }
+      var r = raceOf(t.bib);
+      return r === activeId ? 0 : (r == null ? 1 : 2);
+    }
+    return tiles.slice().sort(function (a, b) {
+      var g = group(a) - group(b);
+      if (g) { return g; }
+      if (sort === 'name') {
+        if (!a.name !== !b.name) { return a.name ? -1 : 1; }
+        var c = a.name.localeCompare(b.name);
+        if (c) { return c; }
+      }
+      return +a.bib - +b.bib;
+    });
+  }
   function inRange(spec, bib) {
     var n = parseInt(bib, 10);
     if (!spec || isNaN(n)) { return false; }
@@ -413,7 +499,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   function mkRace(name) { return { id: 'r' + newId(), name: name, range: '', start: null }; }
   function blankEvent(name) {
     var r = mkRace('Race 1');
-    return { epoch: newId(), name: name || 'Untitled race', races: [r], active: r.id, entries: [], deleted: [], roster: [] };
+    return { epoch: newId(), name: name || 'Untitled race', races: [r], active: r.id, entries: [], deleted: [], roster: [], gridRange: '' };
   }
   function cleanTime(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
   function cleanStr(v, max) { return typeof v === 'string' ? v.slice(0, max) : ''; }
@@ -440,6 +526,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
       s.entries.push({ id: e.id, t: e.t, bib: e.bib, race: typeof e.race === 'string' && seen[e.race] ? e.race : null });
     });
     s.deleted = Array.isArray(o.deleted) ? o.deleted.filter(function (x) { return typeof x === 'string'; }) : [];
+    s.gridRange = cleanStr(o.gridRange, 80);
     s.roster = [];
     if (Array.isArray(o.roster)) {
       var haveBib = {};
@@ -545,12 +632,14 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   function raceName(id) { var r = raceById(id); return r ? r.name : '?'; }
   function rebuildRosterMap() { rosterMap = {}; state.roster.forEach(function (p) { rosterMap[p.bib] = p; }); }
   function nameFor(bib) { var p = bib ? rosterMap[bib] : null; return p ? p.name : ''; }
-  function raceFor(bib) {
+  // The race a bib belongs to from the roster or the bib ranges, or null when neither says.
+  function knownRaceFor(bib) {
     var pr = rosterMap[bib];
     if (pr && pr.race && raceById(pr.race)) { return pr.race; }
     for (var i = 0; i < state.races.length; i++) { if (inRange(state.races[i].range, bib)) { return state.races[i].id; } }
-    return state.active;
+    return null;
   }
+  function raceFor(bib) { return knownRaceFor(bib) || state.active; }
   function elapsed(e) {
     var r = e.race ? raceById(e.race) : null;
     return r && r.start != null ? e.t - r.start : null;
@@ -586,6 +675,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
       box.appendChild(b);
     });
     tick();
+    if (view === 'grid') { renderGrid(); }
   }
   function startRace(id) {
     var now = Date.now(); var r = raceById(id);
@@ -633,8 +723,8 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
 
   /* ---------- recording ---------- */
   function buzz() { try { if (navigator.vibrate) { navigator.vibrate(30); } } catch (e) {} }
-  function addEntry(bib) {
-    var now = Date.now();
+  function addEntry(bib, at) {
+    var now = at == null ? Date.now() : at;
     var race = bib ? raceFor(bib) : state.active;
     var e = { id: now + '-' + Math.floor(Math.random() * 1e6), t: now, bib: bib || null, race: race };
     state.entries.push(e); save(); buzz();
@@ -664,7 +754,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     $('undo').hidden = !list.length;
     if (!list.length) {
       ul.appendChild(el('li', 'empty-log', 'Nothing recorded yet. Type a bib number and press RECORD as each runner crosses.'));
-      renderResults(); renderCsv(); return;
+      renderResults(); renderCsv(); if (view === 'grid') { renderGrid(); } return;
     }
     var places = placeMap();
     var counts = {};
@@ -686,6 +776,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
       ul.appendChild(li);
     });
     renderResults(); renderCsv();
+    if (view === 'grid') { renderGrid(); }
   }
   function buildEditor(e) {
     var box = el('div', 'editor');
@@ -814,7 +905,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   }
   function renderTitle() { $('title').textContent = state.name; document.title = state.name + ' · Race Finish Timer'; }
   function rebuildAll() {
-    rebuildRosterMap(); renderTitle(); buildRaces(); buildSetup(); buildEvents(); renderTyped(); renderLog(); showRecover(); renderRoster();
+    rebuildRosterMap(); $('gridRange').value = state.gridRange; renderTitle(); buildRaces(); buildSetup(); buildEvents(); renderTyped(); renderLog(); showRecover(); renderRoster();
   }
   function switchTo(id) {
     save();
@@ -828,6 +919,118 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     save(); rebuildAll(); say('Created ' + state.name + '.');
   }
   function eventFileStem() { return (state.name || 'race').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'race'; }
+
+  /* ---------- tap grid ---------- */
+  function gridTilesAll() {
+    if (state.roster.length) { return state.roster.map(function (p) { return { bib: p.bib, name: p.name }; }); }
+    var set = {};
+    state.races.forEach(function (r) { expandRanges(r.range, ROSTER_MAX).forEach(function (n) { set[n] = 1; }); });
+    expandRanges(state.gridRange, ROSTER_MAX).forEach(function (n) { set[n] = 1; });
+    return Object.keys(set).map(Number).sort(function (a, b) { return a - b; }).slice(0, ROSTER_MAX)
+      .map(function (n) { return { bib: String(n), name: '' }; });
+  }
+  function setView(v) {
+    view = v === 'grid' ? 'grid' : 'keypad';
+    try { localStorage.setItem(VIEW_KEY, view); } catch (e) {}
+    $('keypadView').hidden = view !== 'keypad';
+    $('gridView').hidden = view !== 'grid';
+    $('viewKeypad').setAttribute('aria-pressed', String(view === 'keypad'));
+    $('viewGrid').setAttribute('aria-pressed', String(view === 'grid'));
+    if (view === 'grid') { renderGrid(); }
+  }
+  function clearConfirm() { confirmBib = null; if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null; } }
+  function renderAssignBar() {
+    var bar = $('assignBar'); bar.textContent = '';
+    var e = assignTo ? state.entries.filter(function (x) { return x.id === assignTo; })[0] : null;
+    if (assignTo && !e) { assignTo = null; }
+    bar.hidden = !assignTo;
+    if (!e) { return; }
+    bar.appendChild(el('span', null, 'Tap the runner for the time marked at ' + wallStr(e.t) + '.'));
+    var c = el('button', 'small', 'Cancel'); c.type = 'button';
+    c.addEventListener('click', function () { assignTo = null; renderGrid(); });
+    bar.appendChild(c);
+  }
+  function tileTap(bib) {
+    var now = Date.now();
+    var done = state.entries.filter(function (e) { return e.bib === bib; }).length;
+    if (done && confirmBib !== bib) {
+      clearConfirm(); confirmBib = bib;
+      confirmTimer = setTimeout(function () { confirmBib = null; confirmTimer = null; if (view === 'grid') { renderGrid(); } }, 4000);
+      renderGrid(); return;
+    }
+    clearConfirm();
+    if (assignTo) {
+      var e = state.entries.filter(function (x) { return x.id === assignTo; })[0];
+      assignTo = null;
+      if (!e) { say('That marked time is gone.', true); renderGrid(); return; }
+      e.bib = bib; e.race = raceFor(bib); save(); renderLog();
+      say('#' + bib + (nameFor(bib) ? ' ' + nameFor(bib) : '') + ' named for the time marked at ' + wallStr(e.t) + '.');
+      return;
+    }
+    addEntry(bib, now);
+  }
+  function renderGrid() {
+    if (view !== 'grid') { return; }
+    renderAssignBar();
+    var box = $('tiles'); var top = box.scrollTop; box.textContent = '';
+    var all = gridTilesAll();
+    $('gridRangeRow').hidden = state.roster.length > 0;
+    var info = {};
+    state.entries.forEach(function (e) {
+      if (!e.bib) { return; }
+      var i = info[e.bib] || (info[e.bib] = { n: 0, last: null });
+      i.n++; if (!i.last || e.t > i.last.t) { i.last = e; }
+    });
+    var shown = orderTiles(filterTiles(all, gridQuery), gridSort, state.races.length > 1 ? state.active : null, knownRaceFor);
+    var note = $('tileNote');
+    if (!all.length) { note.textContent = 'No runners to show. Import a roster, give a race a bib range, or type a bib range above.'; }
+    else if (!shown.length) { note.textContent = 'No runner matches "' + gridQuery.trim() + '".'; }
+    else { note.textContent = (state.roster.length ? all.length + ' runners from the roster.' : all.length + ' bibs from the ranges.') + (shown.length > TILE_CAP ? ' Showing the first ' + TILE_CAP + '; use the filter.' : ''); }
+    shown.slice(0, TILE_CAP).forEach(function (t) {
+      var inf = info[t.bib];
+      var b = el('button', 'tile' + (inf ? ' done' : '') + (confirmBib === t.bib ? ' confirm' : '')); b.type = 'button';
+      b.appendChild(el('span', 'tb num', t.bib));
+      if (t.name) { b.appendChild(el('span', 'tn', t.name)); }
+      if (confirmBib === t.bib) { b.appendChild(el('span', 'tt', 'Again?')); }
+      else if (inf) {
+        var d = elapsed(inf.last);
+        b.appendChild(el('span', 'tt num', (inf.n > 1 ? inf.n + 'x ' : '') + (d == null ? wallStr(inf.last.t) : fmt(d, false))));
+      }
+      b.setAttribute('aria-label', 'Bib ' + t.bib + (t.name ? ' ' + t.name : '') + (inf ? ', recorded' : ''));
+      b.addEventListener('click', function () { tileTap(t.bib); });
+      box.appendChild(b);
+    });
+    box.scrollTop = top;
+    renderRecent();
+  }
+  function renderRecent() {
+    var box = $('recent'); box.textContent = '';
+    var list = state.entries.slice().sort(function (a, b) { return b.t - a.t; }).slice(0, 6);
+    box.hidden = !list.length;
+    if (!list.length) { return; }
+    box.appendChild(el('div', 'label', 'Recently finished'));
+    list.forEach(function (e) {
+      var row = el('div', 'chip');
+      var d = elapsed(e), nm = e.bib ? nameFor(e.bib) : '';
+      var text = e.bib ? '#' + e.bib + (nm ? ' ' + nm : '') : 'Marked ' + wallStr(e.t);
+      row.appendChild(el('span', 'cl', text));
+      row.appendChild(el('span', 'ct num', d == null ? wallStr(e.t) : fmt(d, true)));
+      if (!e.bib) {
+        var nameIt = el('button', 'small', assignTo === e.id ? 'Naming...' : 'Name it'); nameIt.type = 'button';
+        nameIt.addEventListener('click', function () { clearConfirm(); assignTo = assignTo === e.id ? null : e.id; renderGrid(); });
+        row.appendChild(nameIt);
+      }
+      var undo = el('button', 'small danger', 'Undo'); undo.type = 'button';
+      undo.setAttribute('aria-label', 'Undo ' + text);
+      undo.addEventListener('click', function () {
+        state.entries = state.entries.filter(function (x) { return x.id !== e.id; }); state.deleted.push(e.id);
+        if (assignTo === e.id) { assignTo = null; }
+        save(); say('Removed ' + text + '.'); renderLog();
+      });
+      row.appendChild(undo);
+      box.appendChild(row);
+    });
+  }
 
   /* ---------- roster ---------- */
   function rosterPrevKey() { return evKey(eventId) + ':roster-previous'; }
@@ -941,6 +1144,14 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     };
     r.readAsText(f);
   });
+  $('viewKeypad').addEventListener('click', function () { setView('keypad'); });
+  $('viewGrid').addEventListener('click', function () { setView('grid'); });
+  $('markGrid').addEventListener('click', mark);
+  $('gridFilter').addEventListener('input', function () { gridQuery = this.value; renderGrid(); });
+  $('gridSort').addEventListener('click', function () {
+    gridSort = gridSort === 'bib' ? 'name' : 'bib'; this.textContent = 'Sort: ' + gridSort; renderGrid();
+  });
+  $('gridRange').addEventListener('input', function () { state.gridRange = this.value.slice(0, 80); save(); renderGrid(); });
   $('rosterFile').addEventListener('change', function () {
     var f = this.files && this.files[0]; var input = this; if (!f) { return; }
     var r = new FileReader();
@@ -991,10 +1202,11 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   document.addEventListener('keydown', function (ev) {
     var t = ev.target && ev.target.tagName;
     if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || ev.metaKey || ev.ctrlKey || ev.altKey) { return; }
-    if (/^[0-9]$/.test(ev.key)) { key(ev.key); ev.preventDefault(); }
-    else if (ev.key === 'Backspace') { key('⌫'); ev.preventDefault(); }
-    else if (ev.key === 'Enter' && t !== 'BUTTON') { record(); ev.preventDefault(); }
-    else if (ev.key === 'Escape') { key('C'); }
+    var pad = view === 'keypad';
+    if (pad && /^[0-9]$/.test(ev.key)) { key(ev.key); ev.preventDefault(); }
+    else if (pad && ev.key === 'Backspace') { key('⌫'); ev.preventDefault(); }
+    else if (pad && ev.key === 'Enter' && t !== 'BUTTON') { record(); ev.preventDefault(); }
+    else if (pad && ev.key === 'Escape') { key('C'); }
     else if (ev.key === ' ') { mark(); ev.preventDefault(); }
     else if (/^[a-fA-F]$/.test(ev.key)) {
       var r = state.races[LETTERS.indexOf(ev.key.toUpperCase())];
@@ -1028,6 +1240,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     else { eventId = newId(); state = blankEvent(); save(); }
   })();
   buildPad(); rebuildAll();
+  (function () { var v = null; try { v = localStorage.getItem(VIEW_KEY); } catch (e) {} setView(v); })();
   setInterval(tick, 100);
 })();
 </script>

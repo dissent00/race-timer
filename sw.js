@@ -1,6 +1,6 @@
 // Offline cache. Pages are fetched network-first so an update is picked up as soon as the
 // device is online; the cached copy is only the fallback when the network is unavailable.
-const CACHE = 'race-finish-timer-v2.1';
+const CACHE = 'race-finish-timer-v2.2';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
