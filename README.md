@@ -11,8 +11,9 @@ One static page. No server, no account, no upload: everything stays in the brows
 - Optional bib ranges (`1-50, 61`) pick the race for a bib. Otherwise the highlighted race card is used.
 - Mark Time stamps a finisher you cannot name yet; add the number later from the log.
 - Keys: `0-9` bib, `Enter` record, `Space` mark time, `Backspace` / `Esc` fix or clear, `A`-`F` pick race.
+- Roster (optional): import a CSV of `bib,name[,race]` (header row detected; first and last name columns are joined). Recorded bibs then show the runner's name, a bib not on the roster is flagged, and a race name that matches picks the race for the bib. Preview shows duplicates and rejected rows before anything is replaced; the previous roster can be brought back. The roster belongs to its event.
 - Several events can live in one browser. Each keeps its own races, gun times and finishers.
-- Export: copy or download CSV (includes wall-clock times), download a JSON backup. Restoring a backup creates a new event; it never overwrites one.
+- Export: copy or download CSV (columns `place,bib,name,race,elapsed,wall_clock,gun_clock`; wall-clock times let any time be recomputed), download a JSON backup. Restoring a backup creates a new event; it never overwrites one.
 
 ## Data and failure behavior
 
@@ -34,9 +35,10 @@ Any static host works. For GitHub Pages: Settings, Pages, deploy from the `main`
 
 ```
 node tests/pure.test.js
+node tests/roster.test.js
 ```
 
-Sweeps the time formatting against an independent calculation and checks bib ranges, the "ago" parser and CSV quoting. The page-level behavior (failed saves, damaged data, two tabs, restore, events, offline reload) was exercised by hand in a browser; there is no automated browser suite.
+Sweeps the time formatting against an independent calculation and checks bib ranges, the "ago" parser and CSV quoting. `roster.test.js` covers the CSV parser, roster rules, and how a roster survives sanitize and salvage after a cut-off write. The page-level behavior (failed saves, damaged data, two tabs, restore, events, offline reload) was exercised by hand in a browser; there is no automated browser suite.
 
 Not tested on a physical phone: screen lock behavior and the Copy CSV clipboard button.
 

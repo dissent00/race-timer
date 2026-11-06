@@ -130,6 +130,12 @@ table { border-collapse: collapse; width: 100%; font-size: 14px; }
 th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-size: 12px; }
+.who { min-height: 1.4em; font-weight: 700; }
+.nr { color: var(--warn); font-weight: 700; }
+.filebtn { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.filebtn input { min-height: 0; border: 0; background: none; padding: 0; width: 170px; font-size: 13px; }
+#rosterPreview { border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+#rosterPreview ul { margin: 0; padding-left: 18px; font-size: 13px; }
 .keys, .foot { font-size: 12px; color: var(--muted); margin: 0; }
 .keys kbd { font-family: var(--font-num); font-size: 12px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface); color: var(--ink); }
 .evlist { display: flex; flex-direction: column; gap: 6px; }
@@ -161,6 +167,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
         <div class="typed num empty" id="typed" aria-live="polite">bib</div>
         <div class="target" id="target"></div>
       </div>
+      <div class="who" id="who"></div>
       <div class="pad" id="pad"></div>
       <div class="actions">
         <button class="mark" id="mark" type="button">MARK TIME<br><span style="font-weight:400;font-size:12px">number later</span></button>
@@ -190,6 +197,22 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
         <p>Press START on a race card at the gun. If you started late, by mistake, or reopened the page, set the real gun time here: the clock time (24-hour) or how long ago the gun fired. Finishers already recorded re-time themselves. Bib ranges such as <span class="num">1-50, 61</span> pick the race for a bib automatically; blank uses the highlighted race card.</p>
         <div id="setup" style="display:flex;flex-direction:column;gap:10px"></div>
         <div class="btns"><button class="small" id="addRace" type="button">Add race</button></div>
+      </div>
+    </details>
+
+    <details id="rosterBox">
+      <summary id="rosterSummary">Roster</summary>
+      <div class="panel">
+        <p>Optional. Import a CSV of bib and name (and race) so recorded bibs show names. Columns are bib, name, race; a header row is detected, and first and last name columns are joined. A race name that matches a race here picks that race for the bib. The roster belongs to this event and stays in this browser.</p>
+        <div id="rosterInfo"></div>
+        <div class="btns">
+          <label class="small filebtn">Choose CSV file <input id="rosterFile" type="file" accept=".csv,.txt,text/csv,text/plain"></label>
+          <button class="small danger" id="rosterClear" type="button" hidden>Clear roster</button>
+          <button class="small" id="rosterUndo" type="button" hidden>Bring back previous roster</button>
+        </div>
+        <textarea id="rosterPaste" placeholder="Or paste rows here, one runner per line" aria-label="Paste roster rows"></textarea>
+        <div class="btns"><button class="small" id="rosterParse" type="button">Preview pasted rows</button></div>
+        <div id="rosterPreview" hidden></div>
       </div>
     </details>
 
@@ -230,14 +253,15 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   </div>
 
   <p class="keys">Keys: <kbd>0-9</kbd> bib &nbsp; <kbd>Enter</kbd> record &nbsp; <kbd>Space</kbd> mark time, number later &nbsp; <kbd>Backspace</kbd> / <kbd>Esc</kbd> fix or clear &nbsp; <kbd>A</kbd>-<kbd>F</kbd> pick race</p>
-  <p class="foot">Hand-timed results: accuracy depends on whoever records. Everything stays in this browser; nothing is uploaded. Browsers can clear saved site data, so download a backup after each event. MIT licence.</p>
+  <p class="foot">Hand-timed results: accuracy depends on whoever records. Everything stays in this browser; nothing is uploaded, and names from an imported roster leave only in a CSV or backup you export. Browsers can clear saved site data, so download a backup after each event. MIT licence.</p>
 </div>
 
 <script>
 (function () {
   'use strict';
-  var VERSION = '2.0';
+  var VERSION = '2.1';
   var MAX_RACES = 6;
+  var ROSTER_MAX = 5000;
   var PREFIX = 'raceFinishTimer:';
   var CURRENT_KEY = PREFIX + 'current';
   var EVENT_PREFIX = PREFIX + 'event:';
@@ -247,6 +271,8 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   var resetArmed = false;
   var eventId = null;
   var state = null;
+  var rosterMap = {};
+  var pendingRoster = null;
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) {
@@ -270,6 +296,84 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
   function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  // Reads CSV text into rows of strings. Handles a BOM, CRLF/CR/LF, quoted fields with commas,
+  // doubled quotes and newlines, and picks comma, semicolon or tab from the first line.
+  function parseCsv(text) {
+    text = String(text == null ? '' : text).replace(/^﻿/, '');
+    var counts = { ',': 0, ';': 0, '\t': 0 }, q = false, c, i;
+    for (i = 0; i < text.length; i++) {
+      c = text[i];
+      if (c === '"') { q = !q; } else if (!q && (c === '\n' || c === '\r')) { break; } else if (!q && counts[c] != null) { counts[c]++; }
+    }
+    var delim = ',';
+    [';', '\t'].forEach(function (d) { if (counts[d] > counts[delim]) { delim = d; } });
+    var rows = [], row = [], field = '';
+    var inQ = false;
+    function endField() { row.push(field); field = ''; }
+    function endRow() {
+      endField();
+      if (row.some(function (x) { return x.trim() !== ''; })) { rows.push(row); }
+      row = [];
+    }
+    for (i = 0; i < text.length; i++) {
+      c = text[i];
+      if (inQ) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else { inQ = false; } } else { field += c; }
+      } else if (c === '"' && field === '') { inQ = true; }
+      else if (c === delim) { endField(); }
+      else if (c === '\r') { if (text[i + 1] === '\n') { i++; } endRow(); }
+      else if (c === '\n') { endRow(); }
+      else { field += c; }
+    }
+    endRow();
+    return rows;
+  }
+  // Turns roster CSV text into rows of {bib, name, race}. A header row is detected by its words;
+  // without one the columns are bib, name, race. Bad rows are reported, never silently dropped.
+  function parseRoster(text, races, max) {
+    var out = { rows: [], rejected: [], duplicates: 0, unmatchedRaces: 0, capped: false };
+    var data = parseCsv(text);
+    if (!data.length) { return out; }
+    var col = { bib: 0, name: 1, race: 2, first: -1, last: -1 };
+    var head = data[0].map(function (x) { return x.trim().toLowerCase(); });
+    var words = /^(bib|bib ?(no|number|#)|number|no\.?|#|name|full ?name|runner|participant|athlete|first( ?name)?|last( ?name)?|surname|family( ?name)?|race|event|distance|course)$/;
+    var isHeader = head.some(function (h) { return words.test(h); }) && !head.some(function (h) { return /^#?\d+$/.test(h); });
+    var start = 0;
+    if (isHeader) {
+      start = 1; col = { bib: -1, name: -1, race: -1, first: -1, last: -1 };
+      head.forEach(function (h, i) {
+        if (/^(bib|bib ?(no|number|#)|number|no\.?|#)$/.test(h)) { col.bib = i; }
+        else if (/^(name|full ?name|runner|participant|athlete)$/.test(h)) { col.name = i; }
+        else if (/^first/.test(h)) { col.first = i; }
+        else if (/^(last|surname|family)/.test(h)) { col.last = i; }
+        else if (/^(race|event|distance|course)$/.test(h)) { col.race = i; }
+      });
+      if (col.bib < 0) { out.rejected.push({ line: 1, reason: 'no bib column in the header' }); return out; }
+    }
+    var seen = {};
+    for (var r = start; r < data.length; r++) {
+      var row = data[r], line = r + 1;
+      var bibText = (row[col.bib] || '').trim().replace(/^#/, '');
+      if (!bibText) { out.rejected.push({ line: line, reason: 'bib is empty' }); continue; }
+      if (!/^\d+$/.test(bibText)) { out.rejected.push({ line: line, reason: 'bib "' + bibText.slice(0, 12) + '" is not a number' }); continue; }
+      var n = parseInt(bibText, 10);
+      if (n === 0) { out.rejected.push({ line: line, reason: 'bib 0 cannot be entered' }); continue; }
+      var bib = String(n);
+      if (bib.length > 4) { out.rejected.push({ line: line, reason: 'bib ' + bib.slice(0, 12) + ' has more than 4 digits' }); continue; }
+      if (seen[bib]) { out.duplicates++; continue; }
+      if (out.rows.length >= max) { out.capped = true; break; }
+      seen[bib] = 1;
+      var nm = col.first >= 0 || col.last >= 0 ? [row[col.first], row[col.last]].join(' ') : (col.name >= 0 ? row[col.name] : '');
+      nm = String(nm || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      var raceId = null, raceText = col.race >= 0 ? String(row[col.race] || '').trim().toLowerCase() : '';
+      if (raceText) {
+        races.forEach(function (rc) { if (raceId == null && rc.name.trim().toLowerCase() === raceText) { raceId = rc.id; } });
+        if (raceId == null) { out.unmatchedRaces++; }
+      }
+      out.rows.push({ bib: bib, name: nm, race: raceId });
+    }
+    return out;
+  }
   function inRange(spec, bib) {
     var n = parseInt(bib, 10);
     if (!spec || isNaN(n)) { return false; }
@@ -309,7 +413,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   function mkRace(name) { return { id: 'r' + newId(), name: name, range: '', start: null }; }
   function blankEvent(name) {
     var r = mkRace('Race 1');
-    return { epoch: newId(), name: name || 'Untitled race', races: [r], active: r.id, entries: [], deleted: [] };
+    return { epoch: newId(), name: name || 'Untitled race', races: [r], active: r.id, entries: [], deleted: [], roster: [] };
   }
   function cleanTime(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
   function cleanStr(v, max) { return typeof v === 'string' ? v.slice(0, max) : ''; }
@@ -336,6 +440,17 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
       s.entries.push({ id: e.id, t: e.t, bib: e.bib, race: typeof e.race === 'string' && seen[e.race] ? e.race : null });
     });
     s.deleted = Array.isArray(o.deleted) ? o.deleted.filter(function (x) { return typeof x === 'string'; }) : [];
+    s.roster = [];
+    if (Array.isArray(o.roster)) {
+      var haveBib = {};
+      o.roster.some(function (p) {
+        if (s.roster.length >= ROSTER_MAX) { return true; }
+        if (!p || typeof p !== 'object' || typeof p.bib !== 'string' || !/^\d{1,4}$/.test(p.bib) || haveBib[p.bib]) { return false; }
+        haveBib[p.bib] = 1;
+        s.roster.push({ bib: p.bib, name: cleanStr(p.name, 60), race: typeof p.race === 'string' && seen[p.race] ? p.race : null });
+        return false;
+      });
+    }
     return { state: s, dropped: dropped, ok: true };
   }
   // A cut-off write leaves broken JSON; every complete entry object in it is still readable.
@@ -347,6 +462,11 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     var re = /\{"id":"([^"]+)","t":(\d+),"bib":(null|"\d+"),"race":(null|"[^"]+")\}/g, m;
     while ((m = re.exec(raw))) {
       o.entries.push({ id: m[1], t: +m[2], bib: m[3] === 'null' ? null : JSON.parse(m[3]), race: m[4] === 'null' ? null : JSON.parse(m[4]) });
+    }
+    o.roster = [];
+    var rp = /\{"bib":"(\d{1,4})","name":("(?:[^"\\]|\\.)*"),"race":(null|"[^"]+")\}/g, pm;
+    while ((pm = rp.exec(raw))) {
+      try { o.roster.push({ bib: pm[1], name: JSON.parse(pm[2]), race: JSON.parse(pm[3]) }); } catch (e) {}
     }
     var known = {}; o.races.forEach(function (r) { if (r && r.id) { known[r.id] = 1; } });
     o.entries.forEach(function (e) { if (e.race && !known[e.race]) { known[e.race] = 1; o.races.push({ id: e.race, name: 'Race (recovered)', range: '', start: null }); } });
@@ -380,7 +500,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     } catch (e) {}
     try { localStorage.setItem(evKey(id) + ':damaged', raw); } catch (e) {}
     var rec = sanitize(salvage(raw)).state;
-    setWarn('load', 'Saved data was damaged. Recovered ' + rec.entries.length + ' finishers and kept a raw copy. Check the log against your notes, and set the gun times again if they are blank.');
+    setWarn('load', 'Saved data was damaged. Recovered ' + rec.entries.length + ' finishers' + (rec.roster.length ? ' and ' + rec.roster.length + ' roster rows' : '') + ' and kept a raw copy. Check the log against your notes, import the roster again if names are missing, and set the gun times again if they are blank.');
     return rec;
   }
   // Another tab on this page may have written since we loaded. Pull its finishers in instead of
@@ -423,7 +543,11 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   /* ---------- race helpers ---------- */
   function raceById(id) { for (var i = 0; i < state.races.length; i++) { if (state.races[i].id === id) { return state.races[i]; } } return null; }
   function raceName(id) { var r = raceById(id); return r ? r.name : '?'; }
+  function rebuildRosterMap() { rosterMap = {}; state.roster.forEach(function (p) { rosterMap[p.bib] = p; }); }
+  function nameFor(bib) { var p = bib ? rosterMap[bib] : null; return p ? p.name : ''; }
   function raceFor(bib) {
+    var pr = rosterMap[bib];
+    if (pr && pr.race && raceById(pr.race)) { return pr.race; }
     for (var i = 0; i < state.races.length; i++) { if (inRange(state.races[i].range, bib)) { return state.races[i].id; } }
     return state.active;
   }
@@ -492,6 +616,11 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     t.textContent = typed || 'bib';
     t.classList.toggle('empty', !typed);
     $('record').disabled = !typed;
+    var who = $('who'), hit = typed ? rosterMap[typed] : null;
+    who.classList.remove('nr');
+    if (hit) { who.textContent = hit.name || '(no name)'; }
+    else if (typed && state.roster.length && !state.roster.some(function (p) { return p.bib.indexOf(typed) === 0; })) { who.textContent = 'Not on roster'; who.classList.add('nr'); }
+    else { who.textContent = ''; }
     updateTarget();
   }
   function updateTarget() {
@@ -545,8 +674,10 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
       var btn = el('button', 'rowbtn'); btn.type = 'button';
       var bib = el('span', 'bib num', e.bib ? '#' + e.bib : '#?');
       if (e.bib && counts[e.bib] > 1) { bib.appendChild(el('span', 'tag', 'dup')); }
-      var meta = el('span', 'meta'); meta.appendChild(el('b', null, raceName(e.race)));
-      meta.appendChild(document.createTextNode(' · place ' + (places[e.id] || '-') + ' · ' + wallStr(e.t)));
+      var nm = e.bib ? nameFor(e.bib) : '';
+      var meta = el('span', 'meta'); meta.appendChild(el('b', null, nm || raceName(e.race)));
+      meta.appendChild(document.createTextNode((nm ? ' \u00b7 ' + raceName(e.race) : '') + ' \u00b7 place ' + (places[e.id] || '-') + ' \u00b7 ' + wallStr(e.t)));
+      if (e.bib && state.roster.length && !rosterMap[e.bib]) { meta.appendChild(el('span', 'nr', ' \u00b7 not on roster')); }
       var d = elapsed(e);
       btn.appendChild(bib); btn.appendChild(meta); btn.appendChild(el('span', 'el num', d == null ? '--' : fmt(d, true)));
       btn.addEventListener('click', function () { openRow = openRow === e.id ? null : e.id; renderLog(); });
@@ -593,10 +724,11 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
       any = true;
       box.appendChild(el('div', 'label', r.name));
       var wrap = el('div', 'tbl'); var t = el('table');
-      var hr = el('tr'); ['Place', 'Bib', 'Time', 'Clock'].forEach(function (h) { hr.appendChild(el('th', null, h)); }); t.appendChild(hr);
+      var withName = state.roster.length > 0;
+      var hr = el('tr'); ['Place', 'Bib'].concat(withName ? ['Name'] : [], ['Time', 'Clock']).forEach(function (h) { hr.appendChild(el('th', null, h)); }); t.appendChild(hr);
       rows.forEach(function (e, i) {
         var tr = el('tr'); var d = elapsed(e);
-        [String(i + 1), '#' + e.bib, d == null ? '--' : fmt(d, true), wallStr(e.t)].forEach(function (c) { tr.appendChild(el('td', 'num', c)); });
+        [String(i + 1), '#' + e.bib].concat(withName ? [nameFor(e.bib)] : [], [d == null ? '--' : fmt(d, true), wallStr(e.t)]).forEach(function (c, ci) { tr.appendChild(el('td', ci === 2 && withName ? null : 'num', c)); });
         t.appendChild(tr);
       });
       wrap.appendChild(t); box.appendChild(wrap);
@@ -604,11 +736,11 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     if (!any) { box.appendChild(el('p', null, 'Results appear here once numbers are recorded.')); }
   }
   function renderCsv() {
-    var lines = ['place,bib,race,elapsed,wall_clock,gun_clock'];
+    var lines = ['place,bib,name,race,elapsed,wall_clock,gun_clock'];
     var places = placeMap();
     state.entries.slice().sort(function (a, b) { return a.t - b.t; }).forEach(function (e) {
       var d = elapsed(e); var r = e.race ? raceById(e.race) : null; var s = r ? r.start : null;
-      lines.push([places[e.id] || '', e.bib || '', csvCell(r ? r.name : ''), d == null ? '' : fmt(d, true), wallStrTenths(e.t), s == null ? '' : wallStrTenths(s)].join(','));
+      lines.push([places[e.id] || '', e.bib || '', csvCell(nameFor(e.bib)), csvCell(r ? r.name : ''), d == null ? '' : fmt(d, true), wallStrTenths(e.t), s == null ? '' : wallStrTenths(s)].join(','));
     });
     $('csv').value = lines.join('\n');
   }
@@ -682,7 +814,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
   }
   function renderTitle() { $('title').textContent = state.name; document.title = state.name + ' · Race Finish Timer'; }
   function rebuildAll() {
-    renderTitle(); buildRaces(); buildSetup(); buildEvents(); renderTyped(); renderLog(); showRecover();
+    rebuildRosterMap(); renderTitle(); buildRaces(); buildSetup(); buildEvents(); renderTyped(); renderLog(); showRecover(); renderRoster();
   }
   function switchTo(id) {
     save();
@@ -696,6 +828,57 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
     save(); rebuildAll(); say('Created ' + state.name + '.');
   }
   function eventFileStem() { return (state.name || 'race').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'race'; }
+
+  /* ---------- roster ---------- */
+  function rosterPrevKey() { return evKey(eventId) + ':roster-previous'; }
+  function hasRosterPrev() { try { return !!localStorage.getItem(rosterPrevKey()); } catch (e) { return false; } }
+  function rememberRoster() {
+    if (!state.roster.length) { return; }
+    try { localStorage.setItem(rosterPrevKey(), JSON.stringify(state.roster)); } catch (e) {}
+  }
+  function applyRoster(rows) {
+    state.roster = rows; save(); rebuildRosterMap(); renderTyped(); renderLog(); renderRoster();
+  }
+  function renderRoster() {
+    var n = state.roster.length;
+    $('rosterSummary').textContent = 'Roster' + (n ? ' (' + n + ' runners)' : '');
+    var info = $('rosterInfo'); info.textContent = '';
+    if (n) {
+      var missing = {};
+      state.entries.forEach(function (e) { if (e.bib && !rosterMap[e.bib]) { missing[e.bib] = 1; } });
+      var nm = Object.keys(missing).length;
+      info.appendChild(el('p', null, n + ' runners loaded.' + (nm ? ' ' + nm + ' recorded bib' + (nm === 1 ? ' is' : 's are') + ' not on the roster.' : '')));
+    } else { info.appendChild(el('p', null, 'No roster loaded.')); }
+    $('rosterClear').hidden = !n;
+    $('rosterUndo').hidden = !hasRosterPrev();
+    var pv = $('rosterPreview'); pv.textContent = '';
+    pv.hidden = !pendingRoster;
+    if (!pendingRoster) { return; }
+    var p = pendingRoster;
+    pv.appendChild(el('p', null, p.rows.length + ' runners found.' + (p.duplicates ? ' ' + p.duplicates + ' repeated bibs skipped (first one kept).' : '') +
+      (p.unmatchedRaces ? ' ' + p.unmatchedRaces + ' race names did not match a race here.' : '') + (p.capped ? ' Stopped at ' + ROSTER_MAX + ' runners.' : '')));
+    if (p.rejected.length) {
+      pv.appendChild(el('p', null, p.rejected.length + ' rows rejected:'));
+      var ul = el('ul'); p.rejected.slice(0, 5).forEach(function (x) { ul.appendChild(el('li', null, 'row ' + x.line + ': ' + x.reason)); });
+      if (p.rejected.length > 5) { ul.appendChild(el('li', null, 'and ' + (p.rejected.length - 5) + ' more')); }
+      pv.appendChild(ul);
+    }
+    if (p.rows.length) { pv.appendChild(el('p', 'num', p.rows.slice(0, 3).map(function (x) { return '#' + x.bib + ' ' + (x.name || '(no name)'); }).join('   '))); }
+    var b = el('div', 'btns');
+    var use = el('button', 'small', state.roster.length ? 'Replace roster' : 'Use this roster'); use.type = 'button'; use.disabled = !p.rows.length;
+    use.addEventListener('click', function () {
+      rememberRoster(); var rows = p.rows; pendingRoster = null; applyRoster(rows);
+      say('Roster loaded: ' + rows.length + ' runners.');
+    });
+    var cancel = el('button', 'small', 'Cancel'); cancel.type = 'button';
+    cancel.addEventListener('click', function () { pendingRoster = null; renderRoster(); });
+    b.appendChild(use); b.appendChild(cancel); pv.appendChild(b);
+  }
+  function previewRoster(text) {
+    pendingRoster = parseRoster(text, state.races, ROSTER_MAX);
+    if (!pendingRoster.rows.length && !pendingRoster.rejected.length) { pendingRoster.rejected.push({ line: 1, reason: 'no rows found' }); }
+    renderRoster();
+  }
 
   /* ---------- clocks ---------- */
   var lastWall = Date.now(), lastPerf = performance.now();
@@ -757,6 +940,21 @@ textarea { width: 100%; min-height: 120px; font-family: var(--font-num); font-si
       input.value = '';
     };
     r.readAsText(f);
+  });
+  $('rosterFile').addEventListener('change', function () {
+    var f = this.files && this.files[0]; var input = this; if (!f) { return; }
+    var r = new FileReader();
+    r.onload = function () { previewRoster(String(r.result)); input.value = ''; };
+    r.onerror = function () { say('Could not read that file.', true); };
+    r.readAsText(f);
+  });
+  $('rosterParse').addEventListener('click', function () { previewRoster($('rosterPaste').value); });
+  $('rosterClear').addEventListener('click', function () { rememberRoster(); applyRoster([]); say('Roster cleared.'); });
+  $('rosterUndo').addEventListener('click', function () {
+    var prev; try { prev = JSON.parse(localStorage.getItem(rosterPrevKey())); } catch (e) { prev = null; }
+    var r = sanitize({ entries: [], races: state.races, roster: prev });
+    if (!r.ok || !r.state.roster.length) { say('Nothing to bring back.', true); return; }
+    rememberRoster(); applyRoster(r.state.roster); say('Roster brought back: ' + r.state.roster.length + ' runners.');
   });
   $('newEv').addEventListener('click', function () {
     var n = $('newEvName').value.trim(); if (!n) { say('Give the event a name.', true); return; }
